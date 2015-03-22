@@ -1,0 +1,218 @@
+---
+title: "Course Project"
+output: html_document
+---
+
+# Background
+
+In this report the project data from accelerometers on the belt, forearm, 
+arm, and dumbell of 6 participants is used to predict the manner in which they did an exercise. 
+The participants did barbell lifts in 5 different ways, shown in the variable "classe" in the 
+trainings set.  
+The report describes:
+
+- how the model was built
+- how cross validation was used
+- what the expected out of sample error is
+
+Additionally the prediction model was used to predict 20 different test cases. 
+
+
+## 1. load library and data
+
+```{r , warning=FALSE}
+library(caret)
+
+train <- read.csv("pml-training.csv", header=TRUE)
+dim(train)
+
+```
+
+
+## 2. Filter the variables
+
+In the dataset there are 160 variables, which are too much to use them all for the predictor.
+Hence, the data were first filtered, to get the important variables.
+
+### 2.1 remove NA-columns
+
+A clear prediction can only be done with enough data. Hence the columns with too much NAs were removed.
+Therefore, all columns were transformed to numeric and all  variables with more than 50% NAs were removed.
+The classe variable will be added again later.
+
+```{r , warning=FALSE}
+
+short.func <- function(col){length(na.omit(as.numeric(col)))}
+applylist <- apply(train, 2, short.func)
+train.cut <- train[, -which(applylist<(nrow(train)/2))]
+dim(train.cut)
+
+```
+
+### 2.2 remove all date and name columns
+
+The prediction should be dependent on the motion, so all variables 
+which have nothing to do with motion (e.g. names or day) were removed.
+
+```{r , warning=FALSE}
+
+colnames(train.cut)[c(1:4)]
+
+train.cut <- train.cut[,-c(1:4)]
+
+dim(train.cut)
+
+```
+
+
+### 2.3 remove variables with nearly zero variance
+
+Variables with near zero Variance are not useful for a predictor.
+Hence these should be estimated and removed. Therefore nearZeroVar was
+used, but there were no variables with near zero variance.  
+
+```{r , warning=FALSE}
+
+nsv <- nearZeroVar(train.cut, saveMetrics = TRUE)
+nsv
+
+```
+
+
+
+### 2.4 remove correlated variables
+
+If variables are correlated, you can remove one of these, because it won't give you additional information. 
+This was done with cor and findCorrelation. A threshold of 75% corellation was choosen.
+
+```{r , warning=FALSE}
+
+corel <- findCorrelation(cor(train.cut), cutoff = .75)
+corel # 20 variables are correlated with others and can be removed
+train.cut <- train.cut[,-corel]
+
+dim(train.cut)
+
+```
+
+### 2.5 calculation of variable importance
+
+A first training was done to estimate the variable importance. 
+Due to the long estimation time, this step was saved before knitting
+and know is only loaded.
+For prediction, random Forest was used. 
+A threshold of 35% was used, to exclude variables, which are not that
+important.
+
+
+```{r , warning=FALSE}
+
+train.cut$classe <- train$classe
+
+# modFit <- train(classe~.,data=train.cut, method="rf")
+# save(modFit, file = "predictiondata.20.03.Rdata")
+
+load("predictiondata.20.03.Rdata")
+
+mostimp <- varImp(modFit) 
+
+train.fin <- train.cut[,c(row.names(mostimp$importance)[which(mostimp$importance>35)], "classe")]
+
+dim(train.fin)
+
+```
+
+
+## 3. Training with cross validation
+
+For the training, the data are divided in two sets, a training set and a validation set. 
+Due to rule of thumb, a ratio of 60% training and 40% validation was used.
+With the validation-set the out-of-sample error could be predicted.
+
+```{r , warning=FALSE}
+
+set.seed(123)
+inTrain = createDataPartition(train.fin$classe, p=3/4)[[1]]
+cross.train= train.fin[inTrain,]
+cross.val = train.fin[-inTrain,]
+
+```
+
+As above, the training was done with random forest and
+the training was done before knitting, due to the long estimation time, and know is only loaded.
+
+Additionally a training control with crossvalidation (method="cv") was used with a fold number of 5.
+The model selects the optimal model using the largest accuracy.
+
+```{r , warning=FALSE}
+
+set.seed(62433)
+# modFit2 <- train(cross.train$classe~.,data=cross.train, method="rf", trControl=trainControl(method="cv"), number=5)
+# save(modFit, modFit2, file = "predictiondata.20.03.Rdata")
+
+load("predictiondata.20.03.Rdata")
+
+modFit2
+
+```
+
+The used model has an accuracy of `r round(modFit2$results[1,2], digits=2)`, shown at the first point in the following plot.
+
+```{r , warning=FALSE}
+plot(modFit2, main = "Random forest accuracy", xlab = "Predictors", 
+    ylab = "Accuracy")
+
+```
+
+
+## 4. Out of sample error
+
+The in sample error is the error, you get on the same data set you used to build your predictor. 
+This is 1-accuracy, which is `r round(1-modFit2$results[1,2], digits=2)` in this model. 
+
+The out of sample error is the error you get on a new data set.
+The out of sample error is always bigger than the in sample error, due to overfitting. 
+
+The error could be estimated by predicting the classes for the validation set and calculating the accuracy.
+By calculating 1-accuracy, you get the error. 
+
+```{r , warning=FALSE}
+
+pld1 <- predict(modFit2, cross.val)
+
+cM <- confusionMatrix(predict(modFit2, newdata=cross.val), cross.val$classe)
+
+cM
+
+ose <- 1-cM$overall[[1]]
+
+paste("Out of sample error: ", round(ose, digits=2), sep="")
+
+```
+
+The out of sample error is very small with `r round(ose, digits=2)`, and nearly the same
+as the in sample error. 
+
+
+
+## 5. Prediction: apply your machine learning algorithm to the 20 test cases 
+
+The prediction was applied to the 20 test cases.
+
+```{r , warning=FALSE}
+
+testcases <-  read.csv("pml-testing.csv", header=TRUE)
+
+pld2 <- predict(modFit2, testcases)
+
+pld2
+
+```
+
+
+
+
+
+
+
+
